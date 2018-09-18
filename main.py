@@ -51,5 +51,5 @@ for i in ud_files:                                       # reads file of each la
                 edge_degree=get.edge_degree(edgex)             # gives the no. of edges crossing an edge
                 endpoint_cross=get.endpoint_crossing(edgex)    # no. of heads which immediately dominates the nodes which causes non-projectivity in an edge span  
 
-                results1.write(str(lang)+"\t"+str(sent_id)+"\t"+str(max_arity)+"\t"+str(projection_degree)+"\t"+str(gap_degree)+"\t"+str(direction)+"\t"+str(dep_distance)+"\t"+str(projectivity)+"\t"+str(endpoint_cross))
+                results1.write(str(lang)+"\t"+str(sent_id)+"\t"+str(max_arity)+"\t"+str(projection_degree)+"\t"+str(gap_degree)+"\t"+str(edgex)+"\t"+str(direction)+"\t"+str(dep_distance)+"\t"+str(projectivity)+"\t"+str(endpoint_cross)+"\n")
 results1.close()
