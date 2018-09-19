@@ -8,8 +8,8 @@ import matplotlib.pyplot as plt
 from Measures import *
 
 
-results1=open('Hindi_all_measures.csv','a')               
-
+results1=open('measures_allLang_final.csv','a')               
+results2=open('exceptions.csv','a')   
 directory = "F:\leebanks\pile"                   # directory containing the UD scheme tree files in CONLLU format
 ud_files = []
 for root, dirs, files in os.walk(directory):     
@@ -18,12 +18,14 @@ for root, dirs, files in os.walk(directory):
             fullpath = os.path.join(root, file)
             ud_files.append(fullpath)            # creates a list of path of all files (file of each language) from the directory
 
-for i in ud_files:                                       # reads file of each language one by one 
+for i in ud_files:                                       # reads file of each language one by one
     lang = str(i).replace("F:\leebanks\pile", "")        
     lang=lang.replace("-ud-train.conllu", "")            # lang variable stores the language code 
     data_file = open(str(i),'r',encoding='utf-8').read()
+    sentences = []
     sentences = parse(data_file)                         # parses the CONLLU format           
     sent_id=0
+    print(lang)
     for sentence in sentences[0:]:
         sent_id+=1
         tree = nx.DiGraph()                              # An empty directed graph (i.e., edges are uni-directional)  
@@ -34,10 +36,12 @@ for i in ud_files:                                       # reads file of each la
         tree.add_node(ROOT)                            # adds an abstract root node to the directed graph
         for nodex in tree.nodes:
             if not nodex==0:
-                tree.add_edge(tree.nodes[nodex]['head'],nodex,drel=tree.nodes[nodex]['deprel'])       # adds edges as relation between nodes 
+                if tree.has_node(tree.nodes[nodex]['head'])        # to handle disjoint trees
+                    tree.add_edge(tree.nodes[nodex]['head'],nodex,drel=tree.nodes[nodex]['deprel'])       # adds edges as relation between nodes 
         
         get = Compute_measures(tree)                           # creates a instance of 'Compute_measure' class which takes directed acyclic graph as input and returns several formal measures  
         max_arity=get.arity()[0]                               # gives maximum arity present in the tree
+        avg_arity=get.arity()[1]
         projection_degree=get.projection_degree(ROOT)          # gives the projection degree of the tree i.e., size of longest projection chain in the tree
         gap_degree=get.gap_degree(ROOT)                        # gives gap_degree of the tree
         for edgex in tree.edges:
@@ -51,5 +55,5 @@ for i in ud_files:                                       # reads file of each la
                 edge_degree=get.edge_degree(edgex)             # gives the no. of edges crossing an edge
                 endpoint_cross=get.endpoint_crossing(edgex)    # no. of heads which immediately dominates the nodes which causes non-projectivity in an edge span  
 
-                results1.write(str(lang)+"\t"+str(sent_id)+"\t"+str(max_arity)+"\t"+str(projection_degree)+"\t"+str(gap_degree)+"\t"+str(edgex)+"\t"+str(direction)+"\t"+str(dep_distance)+"\t"+str(projectivity)+"\t"+str(endpoint_cross)+"\n")
+                results1.write(str(lang)+"\t"+str(sent_id)+"\t"+str(max_arity)+"\t"+str(avg_arity)+"\t"+str(projection_degree)+"\t"+str(gap_degree)+"\t"+str(edgex)+"\t"+str(direction)+"\t"+str(dep_distance)+"\t"+str(projectivity)+"\t"+str(edge_degree)+"\t"+str(endpoint_cross)+"\n")
 results1.close()
