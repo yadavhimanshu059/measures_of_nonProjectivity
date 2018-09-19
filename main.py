@@ -36,7 +36,7 @@ for i in ud_files:                                       # reads file of each la
         tree.add_node(ROOT)                            # adds an abstract root node to the directed graph
         for nodex in tree.nodes:
             if not nodex==0:
-                if tree.has_node(tree.nodes[nodex]['head'])        # to handle disjoint trees
+                if tree.has_node(tree.nodes[nodex]['head']):        # to handle disjoint trees
                     tree.add_edge(tree.nodes[nodex]['head'],nodex,drel=tree.nodes[nodex]['deprel'])       # adds edges as relation between nodes 
         
         get = Compute_measures(tree)                           # creates a instance of 'Compute_measure' class which takes directed acyclic graph as input and returns several formal measures  
