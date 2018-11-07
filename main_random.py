@@ -7,7 +7,7 @@ from operator import itemgetter
 import matplotlib.pyplot as plt
 from Measures import *
 from Measures_rand import *
-from random import shuffle
+import random
 import treegen as gen
 from baseline_conditions import *
 
@@ -83,7 +83,8 @@ for i in ud_files:                                       # reads file of each la
             generate = Random_base(tree)
             ls_random = generate.gen_random(num_cross_real)
             if ls_random:
-                treex=shuffle(ls_random)[0]
+                random.shuffle(ls_random)
+                treex=ls_random[0]
                 root=1000
                 find=Compute_measures_rand(treex,root)
                 print(str(tree.edges)+"\n--------------\nProjective: "+str(treex.edges)+"\n\n##############################\n\n")
