@@ -14,7 +14,6 @@ from rfutils.nondet import nondet_map
 
 import depgraph
 
-
 def endpoints_of(tree):
     return [n for n in sorted(tree.nodes()) if tree.degree(n) == 1]
 
@@ -88,6 +87,8 @@ def random_directed_tree(n):
     assert n > 1
     return random_directed_tree_from(random_undirected_tree(n))
 
+
+                        
 def all_undirected_trees(n):
     """ Generate all labeled undirected trees with n vertices. 
     There are n ^ (n - 2) such trees. Only works for n > 1. """
@@ -267,8 +268,7 @@ def rooted_at(edges, node):
     for edge in relevant_edges:
         h, d = pair_element(edge, node)
         yield (h, d)
-        for cont in rooted_at(irrelevant_edges, d):
-            yield cont
+        yield from rooted_at(irrelevant_edges, d)
 
 def num_directed_forests_with_components(n, k):
     """ Number of possible directed forests with n nodes and k components. """
