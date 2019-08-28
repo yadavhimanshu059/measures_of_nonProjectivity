@@ -1,6 +1,6 @@
 # measures_of_nonProjectivity
-The modules "main_random_shorts_ar.py", "main_random_shorts_ar_arity.py", and "main_random_shorts_ar_topology.py" takes a directory containing conllu format files and generates random trees for baseline-1, baseline-2 and baseline-3 respectively. The calculated measures i.e., arity, projection degree, gap degree, etc. are stores in same output file for both real and random baseline trees. The output file gets generated in long format.
+The module "main_random_shorts_ar.py" takes a directory containing conllu format files and generates random baseline trees. This baseline generates trees with pruefer code and controls for the rate of crossing dependencies. The calculated measures i.e., arity, tree depth, gap degree, etc. are stored in same output file for both real and random baseline trees. The output file gets generated in long format.
 
-The modules "baseline_conditions_nCross.py", "baseline_conditions_arity.py", and "baseline_conditions_topology.py" contain random tree generation code for three respetive baselines. 
+The module "baseline_conditions_nCross.py" contains random tree generation code. 
 
 To install required dependencies: `pip install -r requirements.txt`
