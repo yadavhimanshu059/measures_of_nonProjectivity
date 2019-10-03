@@ -1,0 +1,252 @@
+---
+title: "Crossings with controlled DL sequence"
+output: html_notebook
+---
+
+
+```{r}
+setwd("~/projects/gapbaseline")
+rm(list=ls())
+
+library(tidyverse)
+library(stringr)
+library(broom)
+library(lmerTest)
+
+
+BAD_LANGS = c("akk", "aii", "am", "ga", "yue", "krl", "kpv", "lt", "mr", "orv", "sa", "swl", "tl", "wbp", "yo", "gun", "la")
+
+HIGH_CASE_LANGS = c("et", "fi", "la", "lv")
+MID_CASE_LANGS = c("ar", "de", "hi", "nl", "bg")
+LOW_CASE_LANGS = c("ca", "en", "fr", "id", "it")
+
+dt = read_tsv("Random_trees_DL_sequence_unbounded_results_SUD.csv", col_names=F)
+do = read_tsv("Random_order_DL_sequence_unbounded_results.csv", col_names=F)
+names(dt) = c("lang","dtype","sent_id","length","max_arity","avg_arity","projD","gapD","illnestedness","edgex","dir","dd", "proj","edgeD","endPoint","HDD")
+names(do) = c("lang","dtype","sent_id","length","max_arity","avg_arity","projD","gapD","illnestedness","edgex","dir","dd", "proj","edgeD","endPoint","HDD")
+
+d = do %>%
+  filter(dtype == "random") %>%
+  mutate(dtype="rla") %>%
+  bind_rows(dt) %>%
+  mutate(lang=str_replace(lang, "\\\\", ""),
+         lang=str_replace(lang, "/", ""),
+         lang=str_replace(lang, "-1", "")) %>%
+  filter(!(lang %in% BAD_LANGS)) 
+
+d_summary = d %>% 
+  filter(!is.na(dtype)) %>%
+  group_by(lang, dtype, sent_id, length, max_arity, projD) %>%
+    summarise(num_cross=sum(1-proj),
+              dl=sum(dd+1),
+              num_hf=sum(dir == "RL")) %>%
+    ungroup()
+
+R_LANGS = unique(d_summary$lang)
+
+d_summary %>%
+  group_by(lang, dtype, length) %>%
+    summarise(mean_num_cross=mean(num_cross),
+              mean_head_final=mean(num_hf/length)) %>%
+    ungroup() %>%
+  mutate(dtype=if_else(dtype == "random", "random trees", if_else(dtype == "rla", "random linear arrangements", "real trees"))) %>%
+  ggplot(aes(x=length, y=mean_num_cross, color=lang, label=lang)) +
+    geom_text() +
+    geom_line() + 
+    facet_wrap(~dtype) + 
+    theme_bw() +
+    scale_color_discrete(guide=FALSE) +
+    xlim(2,NA) +
+    xlab("Sentence length") +
+    ylab("Mean number of crossing arcs per sentence")
+
+
+
+```
+
+```{r}
+# Crossing rate stats
+
+mp0 = d_summary %>%
+  mutate(is_real=if_else(dtype == "real", 1, 0)) %>%
+  glm(num_cross ~ I(log(length)), data=., family="poisson")
+
+mp = d_summary %>%
+  mutate(is_real=if_else(dtype == "real", 1, 0)) %>%
+  glm(num_cross ~ I(log(length)) + I(log(length)):is_real, data=., family="poisson")
+
+mpi = d_summary %>%
+  glm(num_cross ~ I(log(length)) + I(log(length))*dtype, data=., family="poisson")
+
+mg = d_summary %>%
+  mutate(is_real=if_else(dtype == "real", 1, 0)) %>%
+  glm(num_cross ~ 0 + length + length*is_real, data=.)
+
+mg2 = d_summary %>%
+  mutate(is_real=if_else(dtype == "real", 1, 0)) %>%
+  glm(num_cross ~ 0 + I(length^2) + I(length^2) * is_real, data=.)
+  
+
+```
+
+
+```{r}
+# Plot regression fits
+
+d_summary %>% 
+    mutate(poisson_regression=exp(predict(mpi))) %>%
+    group_by(lang, dtype, length) %>%
+      summarise(mean_num_cross=mean(num_cross), 
+                mean_predicted_poisson=mean(poisson_regression)) %>%
+      ungroup() %>%
+    mutate(dtype=if_else(dtype == "random", "random trees", if_else(dtype == "rla", "random linear arrangements", "real trees"))) %>%
+    mutate(dtype=factor(dtype, levels=c("random trees", "random linear arrangements", "real trees"))) %>%
+    ggplot(aes(x=length, y=mean_num_cross, color=lang, label=lang)) +
+      geom_text() +
+      geom_line() + 
+      facet_wrap(~dtype) + 
+      theme_bw() +
+      scale_color_discrete(guide=FALSE) +
+      xlim(2,NA) +
+      xlab("Sentence length") +
+      ylab("Mean number of crossing arcs per sentence") + 
+      geom_line(aes(y=mean_predicted_poisson), color="black", size=2, linetype="dashed")
+
+ggsave("crossings_random_real.pdf", width=7, height=3.5)
+
+
+```
+
+```{r}
+# By-language regressions
+langs = d_summary %>% select(lang) %>% distinct() %>% pull(lang)
+
+dtype_regression = function(d, include) {
+  m0 = glm(num_cross ~ I(log(length)), data=filter(d, dtype %in% c("real", include)), family="poisson")
+  m = glm(num_cross ~ I(log(length)) + I(log(length))*dtype, data=filter(d, dtype %in% c("real", include)), family="poisson")
+  print(summary(m))
+  print(lrtest(m0, m))
+  lrtest(m0, m) %>% tidy() %>% filter(!is.na(p.value)) %>% pull(p.value)
+}
+
+for (l in langs) {
+  dl = filter(d_summary, lang == l)
+  print(l)
+  print(dtype_regression(dl, "random"))
+  print(dtype_regression(dl, "rla"))
+}
+
+```
+
+```{r}
+# Define a permutation test
+
+permutation_difference = function(f, xs, N) {
+  M = length(xs)
+  xs = sample(xs)
+  one = xs[1:N]
+  two = xs[(N+1):M]
+  f(one) - f(two)
+}
+
+permutation_test = function(f, xs, ys, num_samples) {
+  # Is f(x) significantly different from f(y)?
+  N = length(xs)
+  true_difference = f(xs) - f(ys)
+  together = c(xs, ys)
+  baseline_differences = replicate(num_samples, permutation_difference(f, together, N))
+  d = data.frame(difference=baseline_differences) %>%
+    mutate(type="baseline") %>%
+    bind_rows(data.frame(difference=true_difference) %>% mutate(type="real")) %>%
+    arrange(difference) %>%
+    mutate(index=1:(num_samples+1))
+  i = filter(d, type == "real") %>% pull(index)
+  # If there's a tie, we want to always assign the real thing the less extremal rank
+  # So we make sure the real value is on top of most of the baseline values, not below them,
+  # and then resort so that the lexicographic sorting (baseline < real) will take care of the rest
+  if (i > num_samples/2) {
+    i = d %>% 
+      select(-index) %>% 
+      arrange(-difference) %>% 
+      mutate(index=1:(num_samples+1)) %>% 
+      filter(type == "real") %>% 
+      pull(index)
+  }
+  i / (num_samples+1)
+}
+
+```
+
+```{r}
+# Apply permutation test to crossing data
+pt = d_summary %>% 
+  select(lang, dtype, length, dl, num_cross, sent_id) %>% 
+  spread(dtype, num_cross) %>% 
+  group_by(lang, length) %>% 
+    summarise(n=n(), m_rand = mean(random, na.rm=T), m_real = mean(real, na.rm=T), diff=m_rand - m_real, p=permutation_test(mean, real, random, 1000)) %>%
+    ungroup()
+
+```
+
+```{r}
+# Plot real vs. baseline differences with permutation test significance
+
+alpha = .05
+
+pt %>% 
+  mutate(significance=if_else(p<alpha, "p<.05", "n.s.")) %>%
+  ggplot(aes(x=length, y=diff, label=lang, color=significance)) +
+    geom_text() +
+    xlim(3, NA) +
+    xlab("Sentence length") +
+    ylab("Difference in mean number of crossing arcs, random - real") +
+    theme_bw()
+    
+  
+  
+
+
+```
+
+
+```{r}
+
+dc_ud = read_csv("crossings_survey_ud.csv") %>% mutate(corpus="ud")
+dc_sud = read_csv("crossings_survey_sud.csv") %>% mutate(corpus="sud")
+dc = bind_rows(dc_ud, dc_sud)
+
+dc_summary = dc %>% 
+  group_by(corpus, lang, start_line, n) %>% 
+    summarise(num_cross=sum(crossing)) %>% 
+    ungroup() %>% 
+  group_by(corpus, lang) %>%
+    mutate(num_sentences=n()) %>%
+    ungroup() %>%
+  group_by(corpus, lang, n, num_sentences) %>% 
+    summarise(m=mean(num_cross)) %>% 
+    ungroup() 
+
+dc_summary %>% 
+  filter(!(lang %in% BAD_LANGS)) %>%
+  filter(n<20) %>% 
+  filter(num_sentences>5000) %>%
+  ggplot(aes(x=n, y=m, color=lang, label=lang)) + stat_smooth() + geom_text() + facet_wrap(~corpus) + scale_color_discrete(guide=FALSE) + ylab("Mean number of nonprojective arcs per sentence") + xlab("Sentence length")
+
+ggsave("crossings_ud_sud.pdf")
+
+```
+
+
+```{r}
+
+combined = dc_summary %>% 
+  rename(dtype=corpus, length=n, mean_num_cross=m) %>% 
+  select(-num_sentences) %>% 
+  bind_rows(d_summary)
+
+combined %>% 
+  filter(length < 12, !(lang %in% BAD_LANGS), dtype %in% c("random", "sud"), lang %in% R_LANGS) %>% 
+  ggplot(aes(x=length, y=mean_num_cross, color=lang, label=lang)) + geom_text() + stat_smooth() + facet_wrap(~dtype)
+
+
+```
