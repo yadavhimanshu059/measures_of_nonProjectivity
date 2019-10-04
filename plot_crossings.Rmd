@@ -8,7 +8,9 @@ output: html_notebook
 setwd("~/projects/gapbaseline")
 rm(list=ls())
 
+library(plotrix)
 library(tidyverse)
+library(forcats)
 library(stringr)
 library(broom)
 library(lmerTest)
@@ -20,8 +22,9 @@ HIGH_CASE_LANGS = c("et", "fi", "la", "lv")
 MID_CASE_LANGS = c("ar", "de", "hi", "nl", "bg")
 LOW_CASE_LANGS = c("ca", "en", "fr", "id", "it")
 
-dt = read_tsv("Random_trees_DL_sequence_unbounded_results_SUD.csv", col_names=F)
-do = read_tsv("Random_order_DL_sequence_unbounded_results.csv", col_names=F)
+t = read_csv("typology3.csv")
+dt = read_tsv("Random_trees_DL_sequence_unbounded_baseline.csv", col_names=F)
+do = read_tsv("Random_order_DL_sequence_unbounded_baseline.csv", col_names=F)
 names(dt) = c("lang","dtype","sent_id","length","max_arity","avg_arity","projD","gapD","illnestedness","edgex","dir","dd", "proj","edgeD","endPoint","HDD")
 names(do) = c("lang","dtype","sent_id","length","max_arity","avg_arity","projD","gapD","illnestedness","edgex","dir","dd", "proj","edgeD","endPoint","HDD")
 
@@ -53,7 +56,7 @@ d_summary %>%
   ggplot(aes(x=length, y=mean_num_cross, color=lang, label=lang)) +
     geom_text() +
     geom_line() + 
-    facet_wrap(~dtype) + 
+    facet_grid(lang~dtype) + 
     theme_bw() +
     scale_color_discrete(guide=FALSE) +
     xlim(2,NA) +
@@ -99,8 +102,8 @@ d_summary %>%
       summarise(mean_num_cross=mean(num_cross), 
                 mean_predicted_poisson=mean(poisson_regression)) %>%
       ungroup() %>%
-    mutate(dtype=if_else(dtype == "random", "random trees", if_else(dtype == "rla", "random linear arrangements", "real trees"))) %>%
-    mutate(dtype=factor(dtype, levels=c("random trees", "random linear arrangements", "real trees"))) %>%
+    mutate(dtype=if_else(dtype == "random", "DL-controlled random trees", if_else(dtype == "rla", "DL-controlled RLAs", "real trees"))) %>%
+    mutate(dtype=factor(dtype, levels=c("DL-controlled random trees", "DL-controlled RLAs", "real trees"))) %>%
     ggplot(aes(x=length, y=mean_num_cross, color=lang, label=lang)) +
       geom_text() +
       geom_line() + 
@@ -116,12 +119,64 @@ ggsave("crossings_random_real.pdf", width=7, height=3.5)
 
 
 ```
+```{r}
+
+d2 = d_summary %>% 
+    group_by(lang, dtype, length) %>%
+      summarise(n=n(),
+                m=mean(num_cross),
+                se=std.error(num_cross),
+                upper=m+1.96*se,
+                lower=m-1.96*se) %>%
+      ungroup() 
+
+
+EPSILON = .00001
+
+d2log = d2 %>%
+  filter(length>2) %>%
+  mutate(m=m+EPSILON,
+         m=log(m),
+         upper=log(pmax(EPSILON, upper)),
+         lower=log(pmax(EPSILON, lower)),
+         length=log(length))
+
+d2 %>%
+    group_by(lang, dtype) %>%
+      mutate(n=sum(n)) %>%
+      ungroup() %>%
+    group_by(lang) %>%
+      mutate(n=min(n)) %>%
+      ungroup() %>%
+    mutate(dtype=if_else(dtype == "random", "DL-controlled random trees", if_else(dtype == "rla", "DL-controlled RLAs", "real trees"))) %>%
+    mutate(dtype=factor(dtype, levels=c("DL-controlled random trees", "DL-controlled RLAs", "real trees"))) %>%
+    inner_join(t) %>%
+    mutate(lang_name=str_c(lang_name, ", ", "N=", n)) %>%
+    mutate(lang_name=fct_reorder(lang_name, -n)) %>%
+    filter(lang != "gl") %>%
+    ggplot(aes(x=length, y=m, color=dtype, ymin=lower, ymax=upper)) +
+      geom_line() +
+      geom_errorbar() +
+      facet_wrap(~lang_name, ncol=5, scale="free_y") +
+      #xlim(2, NA) +
+      theme_bw() +
+      theme(legend.title=element_blank(),
+            legend.position=c(.75, .03),
+            legend.text=element_text(size=12)) +
+      xlab("Sentence length") +
+      ylab("Mean number of crossing arcs per sentence")
+
+ggsave("crossings_real_random_by_lang.pdf", width=9, height=13)
+
+```
+
+
 
 ```{r}
 # By-language regressions
 langs = d_summary %>% select(lang) %>% distinct() %>% pull(lang)
 
-dtype_regression = function(d, include) {
+dtype_regression_test = function(d, include) {
   m0 = glm(num_cross ~ I(log(length)), data=filter(d, dtype %in% c("real", include)), family="poisson")
   m = glm(num_cross ~ I(log(length)) + I(log(length))*dtype, data=filter(d, dtype %in% c("real", include)), family="poisson")
   print(summary(m))
@@ -132,8 +187,8 @@ dtype_regression = function(d, include) {
 for (l in langs) {
   dl = filter(d_summary, lang == l)
   print(l)
-  print(dtype_regression(dl, "random"))
-  print(dtype_regression(dl, "rla"))
+  print(dtype_regression_test(dl, "random"))
+  print(dtype_regression_test(dl, "rla"))
 }
 
 ```
