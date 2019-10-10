@@ -14,19 +14,18 @@ library(forcats)
 library(stringr)
 library(broom)
 library(lmerTest)
+library(lmtest)
 
 
-BAD_LANGS = c("akk", "aii", "am", "ga", "yue", "krl", "kpv", "lt", "mr", "orv", "sa", "swl", "tl", "wbp", "yo", "gun", "la")
+BAD_LANGS = c("akk", "aii", "am", "ga", "yue", "krl", "kpv", "lt", "mr", "orv", "sa", "swl", "tl", "wbp", "yo", "gun", "la", "gl") # gl has no data
 
-HIGH_CASE_LANGS = c("et", "fi", "la", "lv")
-MID_CASE_LANGS = c("ar", "de", "hi", "nl", "bg")
-LOW_CASE_LANGS = c("ca", "en", "fr", "id", "it")
+NAMES = c("lang","dtype","sent_id","length","max_arity","avg_arity","projD","gapD","illnestedness","edgex","dir","dd", "proj","edgeD","endPoint","HDD")
 
 t = read_csv("typology3.csv")
 dt = read_tsv("Random_trees_DL_sequence_unbounded_baseline.csv", col_names=F)
 do = read_tsv("Random_order_DL_sequence_unbounded_baseline.csv", col_names=F)
-names(dt) = c("lang","dtype","sent_id","length","max_arity","avg_arity","projD","gapD","illnestedness","edgex","dir","dd", "proj","edgeD","endPoint","HDD")
-names(do) = c("lang","dtype","sent_id","length","max_arity","avg_arity","projD","gapD","illnestedness","edgex","dir","dd", "proj","edgeD","endPoint","HDD")
+names(dt) = NAMES
+names(do) = NAMES
 
 d = do %>%
   filter(dtype == "random") %>%
@@ -43,7 +42,8 @@ d_summary = d %>%
     summarise(num_cross=sum(1-proj),
               dl=sum(dd+1),
               num_hf=sum(dir == "RL")) %>%
-    ungroup()
+    ungroup() %>%
+  mutate(is_real=if_else(dtype == "real", 1, 0))
 
 R_LANGS = unique(d_summary$lang)
 
@@ -71,7 +71,6 @@ d_summary %>%
 # Crossing rate stats
 
 mp0 = d_summary %>%
-  mutate(is_real=if_else(dtype == "real", 1, 0)) %>%
   glm(num_cross ~ I(log(length)), data=., family="poisson")
 
 mp = d_summary %>%
@@ -82,12 +81,10 @@ mpi = d_summary %>%
   glm(num_cross ~ I(log(length)) + I(log(length))*dtype, data=., family="poisson")
 
 mg = d_summary %>%
-  mutate(is_real=if_else(dtype == "real", 1, 0)) %>%
-  glm(num_cross ~ 0 + length + length*is_real, data=.)
+  glm(num_cross ~ 0 + length + length*dtype, data=.)
 
 mg2 = d_summary %>%
-  mutate(is_real=if_else(dtype == "real", 1, 0)) %>%
-  glm(num_cross ~ 0 + I(length^2) + I(length^2) * is_real, data=.)
+  glm(num_cross ~ 0 + I(length^2) + I(length^2) * dtype, data=.)
   
 
 ```
@@ -179,8 +176,8 @@ langs = d_summary %>% select(lang) %>% distinct() %>% pull(lang)
 dtype_regression_test = function(d, include) {
   m0 = glm(num_cross ~ I(log(length)), data=filter(d, dtype %in% c("real", include)), family="poisson")
   m = glm(num_cross ~ I(log(length)) + I(log(length))*dtype, data=filter(d, dtype %in% c("real", include)), family="poisson")
-  print(summary(m))
-  print(lrtest(m0, m))
+  #print(summary(m))
+  #print(lrtest(m0, m))
   lrtest(m0, m) %>% tidy() %>% filter(!is.na(p.value)) %>% pull(p.value)
 }
 
@@ -192,6 +189,97 @@ for (l in langs) {
 }
 
 ```
+
+```{r}
+
+
+dr = read_tsv("all_measures_real_SUD_all.csv", col_names=F)
+names(dr) = NAMES
+dr = dr %>%
+  mutate(lang=str_replace(lang, "\\\\", ""),
+         lang=str_replace(lang, "/", ""),
+         lang=str_replace(lang, "-1", "")) %>%
+  filter(!(lang %in% BAD_LANGS))
+
+
+MAXLEN = 30
+
+dr_summary = dr %>%
+  filter(!is.na(dtype),
+         length<=MAXLEN) %>%
+  group_by(lang, dtype, sent_id, length, max_arity, projD) %>%
+    summarise(num_cross=sum(1-proj),
+              dl=sum(dd+1)) %>%
+    ungroup() %>%
+  bind_rows(filter(d_summary, dtype == "random"),
+            filter(d_summary, dtype == "rla")) %>%
+  select(lang, dtype, length, num_cross)
+
+langs = dr_summary %>% select(lang) %>% distinct() %>% pull
+
+for (lang in langs) {
+  dr_summary = dr_summary %>%
+    bind_rows(data.frame(lang=lang,
+                         length=12:MAXLEN,
+                         dtype="random")) %>%
+    bind_rows(data.frame(lang=lang,
+                         length=12:MAXLEN,
+                         dtype="rla"))
+}
+  
+  
+
+# See how well the regression fit to short sentences fits the long sentences...
+dr_summary %>% 
+  mutate(predicted=predict(mg, dr_summary)) %>%
+  group_by(lang, dtype, length) %>%
+    summarise(mean_num_cross=mean(num_cross), 
+              mean_predicted=mean(predicted)) %>%
+    ungroup() %>%
+  mutate(dtype=if_else(dtype == "random", "DL-controlled random trees", if_else(dtype == "rla", "DL-controlled RLAs", "real trees"))) %>%
+  mutate(dtype=factor(dtype, levels=c("DL-controlled random trees", "DL-controlled RLAs", "real trees"))) %>%
+  ggplot(aes(x=length, y=mean_num_cross, color=lang, label=lang)) +
+      geom_text() +
+      geom_line() + 
+      facet_wrap(~dtype) + 
+      theme_bw() +
+      scale_color_discrete(guide=FALSE) +
+      xlim(2,NA) +
+      xlab("Sentence length") +
+      ylab("Mean number of crossing arcs per sentence") + 
+      geom_line(aes(y=mean_predicted), color="black", size=1, linetype="dashed")
+
+```
+
+```{r}
+# Generate figure 
+to_plot = dr_summary %>%
+  mutate(predicted=exp(predict(mpi, dr_summary))) %>%
+  group_by(lang, dtype, length) %>%
+    summarise(mean_num_cross=mean(num_cross), 
+              mean_predicted=mean(predicted)) %>%
+    ungroup() %>%
+  mutate(dtype=if_else(dtype == "random", "DL-controlled random trees", if_else(dtype == "rla", "DL-controlled RLAs", "real trees"))) %>%
+  mutate(dtype=factor(dtype, levels=c("DL-controlled random trees", "DL-controlled RLAs", "real trees")))
+
+to_plot %>%
+  filter(dtype == "real trees") %>%
+  ggplot(aes(x=length, y=mean_num_cross, color=lang, label=lang)) +
+      geom_text() +
+      geom_line() + 
+      theme_bw() +
+      scale_color_discrete(guide=FALSE) +
+      xlim(2,NA) +
+      xlab("Sentence length") +
+      ylab("Mean number of crossing arcs per sentence") +
+      geom_line(data=filter(to_plot, length<12), aes(y=mean_predicted, linetype=dtype), color="black", size=1) +
+      geom_vline(xintercept=11, color="red") +
+      labs(linetype="Regression fit")
+
+ggsave("~/projects/gapbaseline/regression_fit_long_sentences.pdf", width=9, height=5)
+
+```
+
 
 ```{r}
 # Define a permutation test
