@@ -1,4 +1,4 @@
 nose
 networkx
--e git://github.com/Futrell/rfutils.git#egg=rfutils
+-e git+https://github.com/Futrell/rfutils.git#egg=rfutils
 conllu
